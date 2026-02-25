@@ -25,6 +25,7 @@ def health():
     return jsonify({
         "status": "healthy",
         "service": "zalo-bot",
+        "port": 5002,
         "timestamp": datetime.now().isoformat()
     }), 200
 
@@ -34,7 +35,8 @@ def api_health():
     """API health check"""
     return jsonify({
         "status": "ok",
-        "message": "Zalo Bot API is running"
+        "message": "Zalo Bot API is running",
+        "port": 5002
     }), 200
 
 
@@ -48,7 +50,7 @@ def get_bot_info():
     try:
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/getMe"
         response = requests.post(url, json={})
-        
+
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
@@ -73,21 +75,21 @@ def set_webhook():
     try:
         data = request.get_json()
         webhook_url = data.get('url')
-        
+
         if not webhook_url:
             return jsonify({
                 "ok": False,
                 "error": "URL is required"
             }), 400
-        
+
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/setWebhook"
         payload = {
             "url": webhook_url,
             "secret_token": WEBHOOK_SECRET
         }
-        
+
         response = requests.post(url, json=payload)
-        
+
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
@@ -108,7 +110,7 @@ def get_webhook_info():
     try:
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/getWebhookInfo"
         response = requests.post(url, json={})
-        
+
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
@@ -134,21 +136,21 @@ def send_message():
         data = request.get_json()
         chat_id = data.get('chat_id')
         text = data.get('text')
-        
+
         if not chat_id or not text:
             return jsonify({
                 "ok": False,
                 "error": "chat_id and text are required"
             }), 400
-        
+
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": text
         }
-        
+
         response = requests.post(url, json=payload)
-        
+
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
@@ -171,22 +173,22 @@ def send_photo():
         chat_id = data.get('chat_id')
         photo_url = data.get('photo')
         caption = data.get('caption', '')
-        
+
         if not chat_id or not photo_url:
             return jsonify({
                 "ok": False,
                 "error": "chat_id and photo are required"
             }), 400
-        
+
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/sendPhoto"
         payload = {
             "chat_id": chat_id,
             "photo": photo_url,
             "caption": caption
         }
-        
+
         response = requests.post(url, json=payload)
-        
+
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
@@ -208,21 +210,21 @@ def send_sticker():
         data = request.get_json()
         chat_id = data.get('chat_id')
         sticker = data.get('sticker')
-        
+
         if not chat_id or not sticker:
             return jsonify({
                 "ok": False,
                 "error": "chat_id and sticker are required"
             }), 400
-        
+
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/sendSticker"
         payload = {
             "chat_id": chat_id,
             "sticker": sticker
         }
-        
+
         response = requests.post(url, json=payload)
-        
+
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
@@ -248,13 +250,13 @@ def send_chat_action():
         data = request.get_json()
         chat_id = data.get('chat_id')
         action = data.get('action', 'typing')
-        
+
         if not chat_id:
             return jsonify({
                 "ok": False,
                 "error": "chat_id is required"
             }), 400
-        
+
         # Validate action
         valid_actions = ['typing', 'upload_photo']
         if action not in valid_actions:
@@ -262,15 +264,15 @@ def send_chat_action():
                 "ok": False,
                 "error": f"Invalid action. Must be one of: {', '.join(valid_actions)}"
             }), 400
-        
+
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/sendChatAction"
         payload = {
             "chat_id": chat_id,
             "action": action
         }
-        
+
         response = requests.post(url, json=payload)
-        
+
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
@@ -300,18 +302,18 @@ def webhook():
                 "ok": False,
                 "error": "Invalid secret token"
             }), 401
-        
+
         data = request.get_json()
-        
+
         # Log received message
         print(f"[WEBHOOK] Received: {json.dumps(data, indent=2)}")
-        
+
         # Process message
         if data.get('event') == 'user_send_text':
             handle_text_message(data)
         elif data.get('event') == 'user_send_photo':
             handle_photo_message(data)
-        
+
         return jsonify({"ok": True}), 200
     except Exception as e:
         print(f"[ERROR] Webhook error: {str(e)}")
@@ -326,19 +328,19 @@ def handle_text_message(data):
     try:
         chat_id = data.get('sender', {}).get('id')
         text = data.get('message', {}).get('text', '')
-        
+
         if not chat_id:
             return
-        
+
         # Echo message back
         response_text = f"Bạn vừa gửi: {text}"
-        
+
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": response_text
         }
-        
+
         requests.post(url, json=payload)
     except Exception as e:
         print(f"[ERROR] Handle text message error: {str(e)}")
@@ -348,19 +350,19 @@ def handle_photo_message(data):
     """Handle photo message from user"""
     try:
         chat_id = data.get('sender', {}).get('id')
-        
+
         if not chat_id:
             return
-        
+
         # Send response
         response_text = "Cảm ơn bạn đã gửi ảnh!"
-        
+
         url = f"{ZALO_API_BASE}/bot{BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": response_text
         }
-        
+
         requests.post(url, json=payload)
     except Exception as e:
         print(f"[ERROR] Handle photo message error: {str(e)}")
@@ -387,4 +389,11 @@ def internal_error(error):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5002, debug=False)
+    port = int(os.getenv('PORT', 5002))
+    print("\n" + "="*60)
+    print("🤖 ZALO BOT SERVICE")
+    print("="*60)
+    print(f"Running on http://0.0.0.0:{port}")
+    print("="*60 + "\n")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)

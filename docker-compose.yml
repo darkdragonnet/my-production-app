@@ -1,12 +1,67 @@
 version: '3.8'
 
 services:
+  # Flask Server - Port 5001
   flask-api:
-    build: .
-    container_name: flask-production
-    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile.flask
+    container_name: zalo-flask-api
     ports:
-      - "5000:5000"
+      - "5001:5001"
     environment:
-      - FLASK_ENV=production
+      - PORT=5001
       - PYTHONUNBUFFERED=1
+    restart: always
+    networks:
+      - zalo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Zalo Bot - Port 5002
+  zalo-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: zalo-bot-service
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - PYTHONUNBUFFERED=1
+    restart: always
+    networks:
+      - zalo-network
+    depends_on:
+      flask-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Dashboard - Port 5004
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: zalo-dashboard
+    ports:
+      - "5004:5004"
+    environment:
+      - PORT=5004
+      - PYTHONUNBUFFERED=1
+    restart: always
+    networks:
+      - zalo-network
+    depends_on:
+      flask-api:
+        condition: service_healthy
+
+networks:
+  zalo-network:
+    driver: bridge

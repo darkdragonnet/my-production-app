@@ -16,7 +16,8 @@ def health():
     return jsonify({
         'status': 'ok',
         'timestamp': datetime.now().isoformat(),
-        'service': 'Flask Bot Server'
+        'service': 'Flask Bot Server',
+        'port': 5001
     }), 200
 
 @app.route('/api/message/log', methods=['POST'])
@@ -24,16 +25,16 @@ def log_message():
     """Log message from bot"""
     try:
         data = request.get_json()
-        
+
         message = {
             'sender_id': data.get('sender_id'),
             'sender_name': data.get('sender_name'),
             'text': data.get('text'),
             'timestamp': datetime.now().isoformat()
         }
-        
+
         messages.append(message)
-        
+
         return jsonify({'ok': True, 'message': 'Logged successfully'}), 200
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
@@ -56,10 +57,11 @@ def get_user_messages(sender_id):
     }), 200
 
 if __name__ == '__main__':
+    port = int(os.getenv('PORT', 5001))
     print("\n" + "="*60)
     print("🔌 FLASK BOT SERVER")
     print("="*60)
-    print("Running on http://127.0.0.1:5002")
+    print(f"Running on http://0.0.0.0:{port}")
     print("="*60 + "\n")
-    
-    app.run(host='127.0.0.1', port=5001, debug=False)
+
+    app.run(host='0.0.0.0', port=port, debug=False)
