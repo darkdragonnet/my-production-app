@@ -1,67 +1,50 @@
 from flask import Flask, request, jsonify
-from datetime import datetime
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_cors import CORS
+import datetime
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 app = Flask(__name__)
+CORS(app)
 
-# Store messages in memory (for demo)
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["2000 per day", "500 per hour"],
+    storage_uri="memory://"
+)
+
 messages = []
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'ok',
-        'timestamp': datetime.now().isoformat(),
-        'service': 'Flask Bot Server',
-        'port': 5001
-    }), 200
+    return jsonify({"status": "healthy"}), 200
 
 @app.route('/api/message/log', methods=['POST'])
 def log_message():
-    """Log message from bot"""
     try:
         data = request.get_json()
-
-        message = {
-            'sender_id': data.get('sender_id'),
-            'sender_name': data.get('sender_name'),
-            'text': data.get('text'),
-            'timestamp': datetime.now().isoformat()
+        new_msg = {
+            "sender_id": data.get("sender_id"),
+            "sender_name": data.get("sender_name"),
+            "text": data.get("text"),
+            "timestamp": datetime.datetime.now().isoformat()
         }
-
-        messages.append(message)
-
-        return jsonify({'ok': True, 'message': 'Logged successfully'}), 200
+        messages.append(new_msg)
+        if len(messages) > 100: messages.pop(0)
+        return jsonify({"ok": True}), 200
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route('/api/messages', methods=['GET'])
 def get_messages():
-    """Get all logged messages"""
-    return jsonify({
-        'messages': messages,
-        'count': len(messages)
-    }), 200
-
-@app.route('/api/messages/<sender_id>', methods=['GET'])
-def get_user_messages(sender_id):
-    """Get messages from specific user"""
-    user_messages = [m for m in messages if m['sender_id'] == sender_id]
-    return jsonify({
-        'messages': user_messages,
-        'count': len(user_messages)
-    }), 200
+    return jsonify({"messages": messages}), 200
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5001))
-    print("\n" + "="*60)
-    print("🔌 FLASK BOT SERVER")
-    print("="*60)
-    print(f"Running on http://0.0.0.0:{port}")
-    print("="*60 + "\n")
-
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=5001)

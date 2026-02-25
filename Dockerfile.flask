@@ -1,14 +1,9 @@
 FROM python:3.9-slim
-
 WORKDIR /app
-
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-COPY flask_server.py .
-
+COPY . .
 ENV PORT=5001
-
 EXPOSE 5001
-
-CMD ["python", "flask_server.py"]
+CMD ["gunicorn", "--workers=4", "--threads=2", "--worker-class=gthread", "--bind=0.0.0.0:5001", "flask_server:app"]

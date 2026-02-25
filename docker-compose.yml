@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # Flask Server - Port 5001
   flask-api:
     build:
       context: .
@@ -17,11 +14,11 @@ services:
       - zalo-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 3
+      start_period: 10s
 
-  # Zalo Bot - Port 5002
   zalo-bot:
     build:
       context: .
@@ -38,13 +35,7 @@ services:
     depends_on:
       flask-api:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
-  # Dashboard - Port 5004
   dashboard:
     build:
       context: .
@@ -54,6 +45,8 @@ services:
       - "5004:5004"
     environment:
       - PORT=5004
+      - FLASK_API_URL=http://zalo-flask-api:5001
+      - ZALO_BOT_URL=http://zalo-bot-service:5002
       - PYTHONUNBUFFERED=1
     restart: always
     networks:
