@@ -1,38 +1,43 @@
 import os
 import logging
-import threading
 import time
 import requests
 from datetime import datetime
-from flask import Flask, jsonify, request
 
-# ===== CẤU HÌNH LOGGING =====
+# Cấu hình logging để xem trên Docker
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# ===== GLOBAL SCOPE: LẤY ADMIN ID NGAY KHI MODULE ĐƯỢC IMPORT =====
-ADMIN_ZALO_ID = os.getenv("ADMIN_ZALO_ID")
+# Khởi tạo biến toàn cục cho Admin ID
+ADMIN_ZALO_ID = None
 FLASK_API_URL = os.getenv("FLASK_API_URL", "http://zalo-flask-api:5001")
 
-if ADMIN_ZALO_ID:
-    logger.info(f"✅ [STARTUP] Đã nhận diện thành công Admin ID: {ADMIN_ZALO_ID}")
-else:
-    logger.warning("⚠️ [STARTUP] Chưa tìm thấy ADMIN_ZALO_ID trong cấu hình.")
-
-# ===== KHỞI TẠO FLASK APP =====
-app = Flask(__name__)
+def get_admin_id_on_startup():
+    """Hàm chạy khi khởi động để lấy ID của Admin từ biến môi trường"""
+    global ADMIN_ZALO_ID
+    
+    # Quét biến môi trường để lấy ID
+    ADMIN_ZALO_ID = os.getenv("ADMIN_ZALO_ID")
+    
+    if ADMIN_ZALO_ID:
+        logger.info(f"✅ [STARTUP] Đã nhận diện thành công Admin ID: {ADMIN_ZALO_ID}")
+        # Gửi thông báo cho Admin rằng hệ thống đã khởi động
+        notify_admin_system_online(ADMIN_ZALO_ID)
+    else:
+        logger.warning("⚠️ [STARTUP] Chưa tìm thấy ADMIN_ZALO_ID trong cấu hình. Các tính năng thông báo cho Admin sẽ bị vô hiệu hóa.")
 
 def notify_admin_system_online(admin_id):
     """Gửi tin nhắn thông báo cho Admin rằng hệ thống đã khởi động"""
     try:
         current_time = datetime.now().strftime("%H:%M:%S")
         message = f"🤖 Bot đã khởi động thành công lúc {current_time}. Hệ thống sẵn sàng phục vụ!"
-
+        
         logger.info(f"📨 Đang gửi tin nhắn báo thức dậy cho Admin {admin_id}...")
-
+        
+        # Gọi API Flask để gửi tin nhắn (bạn cần thêm endpoint này vào app.py)
         response = requests.post(
             f"{FLASK_API_URL}/send-message",
             json={
@@ -41,7 +46,7 @@ def notify_admin_system_online(admin_id):
             },
             timeout=5
         )
-
+        
         if response.status_code == 200:
             logger.info(f"✅ Tin nhắn đã gửi thành công cho Admin {admin_id}")
         else:
@@ -56,6 +61,7 @@ def monitor_system_health():
         if response.status_code != 200:
             logger.error(f"❌ API gặp lỗi! Status: {response.status_code}")
             if ADMIN_ZALO_ID:
+                # Gửi cảnh báo cho Admin
                 requests.post(
                     f"{FLASK_API_URL}/send-message",
                     json={
@@ -67,58 +73,32 @@ def monitor_system_health():
     except Exception as e:
         logger.error(f"❌ Lỗi khi kiểm tra sức khỏe hệ thống: {e}")
 
-def bot_background_worker():
-    """Chạy logic Bot ở background thread"""
+if __name__ == "__main__":
     logger.info("=" * 50)
     logger.info("🚀 Bot Service đang khởi động...")
     logger.info("=" * 50)
-
-    # Gửi thông báo cho Admin
-    if ADMIN_ZALO_ID:
-        notify_admin_system_online(ADMIN_ZALO_ID)
-
+    
+    # 1. Gọi hàm kiểm tra admin đầu tiên khi chạy file
+    get_admin_id_on_startup()
+    
+    # 2. Chạy logic chính của Bot (vòng lặp duy trì kết nối)
     logger.info("Bot Service đang hoạt động...")
     logger.info("=" * 50)
-
+    
     counter = 0
     while True:
         try:
             counter += 1
-
-            # Mỗi 5 phút kiểm tra một lần sức khỏe hệ thống
+            
+            # Mỗi 5 phút (300 giây) kiểm tra một lần sức khỏe hệ thống
             if counter % 5 == 0:
                 monitor_system_health()
-
+            
+            # Xử lý các task ngầm ở đây
             time.sleep(60)
+        except KeyboardInterrupt:
+            logger.info("Bot Service đã dừng.")
+            break
         except Exception as e:
             logger.error(f"Lỗi trong vòng lặp chính: {e}")
             time.sleep(60)
-
-# ===== FLASK ENDPOINTS =====
-
-@app.route('/health', methods=['GET'])
-def health():
-    """Endpoint kiểm tra sức khỏe Bot Service"""
-    return jsonify({
-        "status": "healthy",
-        "service": "zalo-bot",
-        "admin_id": ADMIN_ZALO_ID or "Not configured"
-    }), 200
-
-@app.route('/status', methods=['GET'])
-def status():
-    """Endpoint kiểm tra trạng thái Bot"""
-    return jsonify({
-        "status": "online",
-        "bot_status": "active",
-        "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }), 200
-
-# ===== KHỞI ĐỘNG BACKGROUND WORKER NGAY KHI MODULE ĐƯỢC IMPORT =====
-# Chạy bot worker ở background thread để không block Flask
-bot_thread = threading.Thread(target=bot_background_worker, daemon=True)
-bot_thread.start()
-logger.info("✅ Bot background worker đã được khởi động")
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5002, debug=False)

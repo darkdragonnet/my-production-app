@@ -1,0 +1,249 @@
+from flask import Flask, jsonify, request
+from datetime import datetime
+import os
+import logging, sqlite3
+import requests
+import json
+
+# Cấu hình logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ===== KHAI BÁO BIẾN TOÀN CỤC =====
+DB_FILE = os.path.join(os.path.dirname(__file__), 'webhooks.db')
+WEBHOOK_LOG_FILE = os.path.join(os.path.dirname(__file__), 'webhook_log.json')
+ZALO_ACCESS_TOKEN = os.getenv('ZALO_ACCESS_TOKEN', 'YOUR_TOKEN_HERE')
+
+app = Flask(__name__)
+
+# ===== KHỞI TẠO DATABASE =====
+def init_db():
+    """Tạo bảng webhooks nếu chưa tồn tại"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                event_name TEXT,
+                sender_id TEXT,
+                message_text TEXT,
+                raw_data TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        conn.commit()
+        conn.close()
+        logging.info("✅ Database initialized successfully")
+    except Exception as e:
+        logging.error(f"❌ Database initialization error: {e}")
+
+# Gọi hàm khởi tạo khi app start
+init_db()
+
+# ===== HÀM HELPER: LẤY THÔNG TIN PROFILE TỪ ZALO API =====
+def get_zalo_profile(user_id):
+    """
+    Gọi API Zalo để lấy Tên và Avatar dựa vào UID
+    
+    Args:
+        user_id (str): Zalo User ID
+        
+    Returns:
+        dict: {"name": "Tên người dùng", "avatar": "URL avatar"}
+    """
+    if not ZALO_ACCESS_TOKEN or ZALO_ACCESS_TOKEN == 'YOUR_TOKEN_HERE':
+        logger.warning(f"⚠️ ZALO_ACCESS_TOKEN chưa được cấu hình")
+        return {"name": "Chưa có Token", "avatar": ""}
+        
+    url = "https://openapi.zalo.me/v2.0/oa/getprofile"
+    headers = {"access_token": ZALO_ACCESS_TOKEN}
+    params = {"data": json.dumps({"user_id": str(user_id)})}
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("error") == 0:
+                profile_data = data.get("data", {})
+                return {
+                    "name": profile_data.get("display_name", "Không xác định"),
+                    "avatar": profile_data.get("avatar", "")
+                }
+            else:
+                logger.warning(f"⚠️ Zalo API trả về lỗi {data.get('error')}: {data.get('message')}")
+        else:
+            logger.error(f"❌ Zalo API HTTP {res.status_code}: {res.text}")
+    except Exception as e:
+        logger.error(f"❌ Lỗi khi lấy Zalo Profile cho {user_id}: {e}")
+        
+    return {"name": "Không xác định", "avatar": ""}
+
+# ===== ROUTES =====
+
+@app.route('/')
+def home():
+    return jsonify({"message": "Zalo Bot API is running!"})
+
+@app.route('/status')
+def status():
+    """Endpoint kiểm tra trạng thái hệ thống"""
+    return jsonify({
+        "status": "online",
+        "bot_status": "active",
+        "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "version": "1.0.2"
+    })
+
+@app.route('/bot-info', methods=['GET'])
+def get_bot_info():
+    """Endpoint lấy thông tin Bot từ Zalo Platform"""
+    bot_token = os.getenv("ZALO_BOT_TOKEN")
+
+    if not bot_token:
+        return jsonify({"error": "Chưa cấu hình ZALO_BOT_TOKEN"}), 500
+
+    url = f"https://bot-api.zaloplatforms.com/bot{bot_token}/getMe"
+
+    try:
+        response = requests.post(url, headers={"Content-Type": "application/json"}, timeout=5)
+
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            logger.error(f"Zalo API trả về lỗi: {response.text}")
+            return jsonify({"error": f"Lỗi từ Zalo: {response.status_code}"}), response.status_code
+
+    except Exception as e:
+        logger.error(f"❌ Lỗi khi gọi API getMe của Zalo: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/webhook', methods=['POST', 'GET'])
+def webhook():
+    """Endpoint nhận Webhook từ Zalo"""
+    if request.method == 'POST':
+        data = request.get_json()
+        logger.info(f"📨 Nhận Webhook từ Zalo: {data}")
+
+        # Xử lý logic webhook ở đây
+        # Ví dụ: Lưu tin nhắn vào database, phân tích nội dung, v.v.
+
+        return jsonify({"status": "received", "message": "Webhook processed"})
+    return jsonify({"status": "webhook endpoint ready"})
+
+@app.route('/send-message', methods=['POST'])
+def send_message():
+    """Endpoint gửi tin nhắn cho người dùng (được gọi bởi Bot Service)"""
+    try:
+        data = request.get_json()
+        recipient_id = data.get("recipient_id")
+        message = data.get("message")
+
+        if not recipient_id or not message:
+            return jsonify({"error": "Missing recipient_id or message"}), 400
+
+        logger.info(f"📤 Gửi tin nhắn cho {recipient_id}: {message}")
+
+        # Tại đây bạn sẽ gọi Zalo API để gửi tin nhắn thực tế
+        # Ví dụ:
+        # zalo_api_response = requests.post(
+        #     "https://openapi.zalo.me/v2.0/oa/message/send",
+        #     headers={"access_token": ZALO_ACCESS_TOKEN},
+        #     json={"recipient": {"user_id": recipient_id}, "message": {"text": message}}
+        # )
+
+        return jsonify({
+            "status": "success",
+            "message": "Tin nhắn đã được gửi",
+            "recipient_id": recipient_id
+        }), 200
+    except Exception as e:
+        logger.error(f"❌ Lỗi khi gửi tin nhắn: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get-messages', methods=['GET'])
+def get_messages():
+    """Endpoint lấy danh sách tin nhắn (cho Dashboard)"""
+    # Giả lập dữ liệu - sau này sẽ lấy từ database
+    messages = [
+        {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "sender": "Hệ thống",
+            "content": "Bot đã khởi động thành công"
+        }
+    ]
+    return jsonify({"messages": messages})
+
+@app.route('/followers', methods=['GET'])
+def get_followers():
+    """
+    Endpoint lấy danh sách người dùng kèm Tên và Avatar
+    
+    Response:
+    {
+        "total_followers": 5,
+        "followers": [
+            {
+                "sender_id": "123456789",
+                "last_active": "2025-02-27 20:30:45",
+                "interaction_count": 10,
+                "name": "Nguyễn Văn A",
+                "avatar": "https://...avatar_url..."
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        c.execute("""
+            SELECT 
+                sender_id, 
+                MAX(timestamp) as last_active,
+                COUNT(id) as interaction_count
+            FROM webhooks 
+            WHERE sender_id IS NOT NULL AND sender_id != ''
+            GROUP BY sender_id
+            ORDER BY last_active DESC
+        """)
+        rows = c.fetchall()
+        conn.close()
+        
+        followers = []
+        for row in rows:
+            user_data = dict(row)
+            # 🔑 Gọi hàm lấy profile cho từng UID
+            logger.info(f"📥 Đang lấy profile cho user {user_data['sender_id']}...")
+            profile = get_zalo_profile(user_data["sender_id"])
+            user_data["name"] = profile["name"]
+            user_data["avatar"] = profile["avatar"]
+            followers.append(user_data)
+            logger.info(f"✅ Profile: {profile['name']} - Avatar: {profile['avatar'][:50] if profile['avatar'] else 'N/A'}...")
+            
+        return jsonify({
+            "total_followers": len(followers),
+            "followers": followers
+        })
+    except Exception as e:
+        logger.error(f"❌ Lỗi lấy danh sách follower: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Endpoint not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error"}), 500
+
+if __name__ == '__main__':
+    logger.info("🚀 Flask API đang khởi động...")
+    app.run(host='0.0.0.0', port=5001, debug=False)

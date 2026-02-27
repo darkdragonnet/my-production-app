@@ -1,24 +1,32 @@
 services:
+  # Flask API - Trái tim của hệ thống
   flask-api:
     build:
       context: .
-      dockerfile: Dockerfile.flask
+      dockerfile: Dockerfile.api
     container_name: zalo-flask-api
     ports:
       - "5001:5001"
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:                 # 🔑 THÊM DÒNG NÀY ĐỂ KẾT NỐI KÉT SẮT
+      - ./data:/app/data     # 🔑 VÀ DÒNG NÀY NỮA
     environment:
-      - PORT=5001
-      - PYTHONUNBUFFERED=1
-    restart: always
+      - FLASK_ENV=production
+      - FLASK_API_URL=http://zalo-flask-api:5001
+      - ZALO_BOT_TOKEN=2928638494010553625:OWrqGMQxHrTlOGuJbfXVMxgDbsVaqbAJrplTAuNbXUDISDLzpwzbLTlScHXfKLcH
     networks:
       - zalo-network
+      - global-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5001/status"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
+  # Zalo Bot Service - Xử lý tác vụ ngầm
   zalo-bot:
     build:
       context: .
@@ -26,35 +34,46 @@ services:
     container_name: zalo-bot-service
     ports:
       - "5002:5002"
+    restart: unless-stopped
+    env_file:              # ✅ THÊM 2 DÒNG NÀY
+      - .env
     environment:
-      - PORT=5002
-      - PYTHONUNBUFFERED=1
-    restart: always
-    networks:
-      - zalo-network
+      - FLASK_API_URL=http://zalo-flask-api:5001
+      - ADMIN_ZALO_ID=112233445566778899
     depends_on:
       flask-api:
         condition: service_healthy
+    networks:
+      - zalo-network
+      - global-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
+  # Streamlit Dashboard - Giao diện quản trị
   dashboard:
     build:
       context: .
       dockerfile: Dockerfile.dashboard
     container_name: zalo-dashboard
     ports:
-      - "5004:5004"
+      - "5004:8501"
+    restart: unless-stopped
+    env_file:              # ✅ THÊM 2 DÒNG NÀY
+      - .env
     environment:
-      - PORT=5004
       - FLASK_API_URL=http://zalo-flask-api:5001
-      - ZALO_BOT_URL=http://zalo-bot-service:5002
-      - PYTHONUNBUFFERED=1
-    restart: always
+    depends_on:
+      - flask-api
     networks:
       - zalo-network
-    depends_on:
-      flask-api:
-        condition: service_healthy
+      - global-network
 
 networks:
   zalo-network:
     driver: bridge
+  global-network:
+    external: true

@@ -1,0 +1,149 @@
+import streamlit as st
+import requests
+import os
+import pandas as pd
+from datetime import datetime
+
+st.set_page_config(page_title="Zalo Bot Dashboard", layout="wide")
+
+# Lấy cấu hình từ Environment Variables của Docker
+FLASK_API_URL = os.getenv("FLASK_API_URL", "http://zalo-flask-api:5001")
+
+st.title("📱 Zalo Bot Production Dashboard")
+
+FLASK_API_URL = os.getenv("FLASK_API_URL", "http://zalo-flask-api:5001")
+
+st.title("📊 Zalo Bot Admin Dashboard")
+
+# --- THÊM KHỐI HIỂN THỊ THÔNG TIN BOT ---
+st.header("🤖 Thông tin Zalo Bot")
+try:
+    with st.spinner("Đang tải thông tin từ Zalo..."):
+        res = requests.get(f"{FLASK_API_URL}/bot-info", timeout=5)
+        
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("ok"):
+                bot_info = data["result"]
+                
+                # Hiển thị 3 cột thông tin đẹp mắt
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Tên Bot", bot_info.get("account_name", "N/A"))
+                col2.metric("Bot ID", bot_info.get("id", "N/A"))
+                col3.metric("Loại tài khoản", bot_info.get("account_type", "N/A"))
+                
+                if bot_info.get("can_join_groups"):
+                    st.success("✅ Bot này CÓ quyền tham gia nhóm.")
+                else:
+                    st.info("ℹ️ Bot này KHÔNG CÓ quyền tham gia nhóm.")
+            else:
+                st.warning("⚠️ Zalo API không trả về dữ liệu hợp lệ.")
+        else:
+            st.error(f"⚠️ Chưa cấu hình ZALO_BOT_TOKEN hoặc token không hợp lệ.")
+except Exception as e:
+    st.error(f"❌ Không thể kết nối đến Flask API: {e}")
+
+#st.divider()
+
+# Kiểm tra trạng thái API
+st.divider()
+
+# --- TẠO TABS GIAO DIỆN ---
+tab1, tab2 = st.tabs([
+    "📨 Lịch sử Tin nhắn & Webhook",
+    "👥 Quản lý Người dùng (Followers)"
+])
+
+# ==========================================
+# TAB 1: LỊCH SỬ WEBHOOK
+# ==========================================
+with tab1:
+    col_btn, col_space = st.columns([1, 4])
+    if col_btn.button("🔄 Làm mới tin nhắn", key="btn_msg",
+                      use_container_width=True):
+        st.rerun()
+
+    try:
+        with st.spinner("Đang tải dữ liệu tin nhắn..."):
+            res = requests.get(f"{FLASK_API_URL}/get-messages", timeout=5)
+            if res.status_code == 200:
+                messages = res.json().get("messages", [])
+                if messages:
+                    df = pd.DataFrame(messages)
+                    display_df = df[[
+                        'timestamp', 'event_name', 'sender_id',
+                        'message_text'
+                    ]]
+                    display_df.columns = [
+                        'Thời gian', 'Sự kiện',
+                        'Zalo ID Người gửi', 'Nội dung tin nhắn'
+                    ]
+                    st.dataframe(
+                        display_df,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    with st.expander("🔍 Xem dữ liệu JSON thô"):
+                        st.json(messages)
+                else:
+                    st.info("📭 Chưa có tin nhắn nào.")
+    except Exception as e:
+        st.error(f"❌ Lỗi tải tin nhắn: {e}")
+
+# ==========================================
+# TAB 2: QUẢN LÝ NGƯỜI DÙNG (FOLLOWERS)
+# ==========================================
+with tab2:
+    col_btn2, col_space2 = st.columns([1, 4])
+    if col_btn2.button("🔄 Làm mới danh sách", key="btn_user",
+                       use_container_width=True):
+        st.rerun()
+
+    try:
+        with st.spinner("Đang tổng hợp dữ liệu người dùng..."):
+            res_users = requests.get(
+                f"{FLASK_API_URL}/followers",
+                timeout=5
+            )
+
+            if res_users.status_code == 200:
+                data = res_users.json()
+                followers = data.get("followers", [])
+                total = data.get("total_followers", 0)
+
+                st.metric(
+                    label="🌟 Tổng số người dùng đã tương tác",
+                    value=f"{total} người"
+                )
+
+                if followers:
+                    df_users = pd.DataFrame(followers)
+                    df_users.columns = [
+                        'Zalo ID (UID)',
+                        'Lần hoạt động cuối',
+                        'Tổng số lần tương tác'
+                    ]
+
+                    st.dataframe(
+                        df_users,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info(
+                        "Chưa có người dùng nào tương tác với Bot."
+                    )
+    except Exception as e:
+        st.error(f"❌ Lỗi tải danh sách người dùng: {e}")
+
+
+st.write("---")
+st.subheader("Dữ liệu tin nhắn mới nhất")
+# Giả lập hoặc fetch data từ database ở đây
+df = pd.DataFrame({
+    'Thời gian': [datetime.now().strftime("%H:%M:%S")],
+    'Người gửi': ['Hệ thống'],
+    'Nội dung': ['Đã cập nhật code thành công qua EOF']
+})
+st.table(df)
