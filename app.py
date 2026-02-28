@@ -5,6 +5,7 @@ import logging
 import requests
 import json
 import sqlite3
+import threading
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,11 +29,19 @@ def init_db():
 
 init_db()
 
+def forward_to_bot_service(payload_data):
+    try:
+        bot_url = os.getenv("ZALO_BOT_SERVICE_URL", "http://zalo-bot-service:5002")
+        endpoint = f"{bot_url}/webhook/zalo" 
+        requests.post(endpoint, json=payload_data, headers={"Content-Type": "application/json"}, timeout=5)
+    except Exception as e:
+        logger.warning(f"⚠️ Không thể forward tới Bot Service: {e}")
+
 @app.route('/', methods=['GET'])
 def home(): return jsonify({"message": "Zalo Bot API is running!"})
 
 @app.route('/status', methods=['GET'])
-def status(): return jsonify({"status": "online", "bot_status": "active", "version": "1.0.8"})
+def status(): return jsonify({"status": "online", "bot_status": "active", "version": "1.1.0"})
 
 @app.route('/bot-info', methods=['GET'])
 def get_bot_info():
@@ -49,15 +58,12 @@ def webhook():
     secret_token = request.headers.get("X-Bot-Api-Secret-Token")
     if secret_token != "GiaTruongBotSecretKey2026": return jsonify({"error": "Unauthorized"}), 403
     
-    # 🔑 FIX: Xử lý JSON đúng chuẩn (Chống lỗi ký tự xuống dòng)
     try:
         data = request.get_json(silent=True)
         if data is None:
-            # Nếu get_json thất bại do ký tự lạ, dùng json.loads thủ công
             raw_data = request.get_data(as_text=True)
             data = json.loads(raw_data, strict=False)
     except Exception as e:
-        logger.error(f"Lỗi parse JSON: {e}")
         return jsonify({"error": "Invalid JSON"}), 400
         
     payload = data.get("result", data) 
@@ -76,8 +82,9 @@ def webhook():
                       (timestamp, event_name, sender_id, message_text, json.dumps(data)))
             conn.commit()
             conn.close()
-            logger.info(f"✅ Đã ghi Webhook vào Database (UID: {sender_id})")
+            threading.Thread(target=forward_to_bot_service, args=(data,)).start()
         except Exception as e: logger.error(f"Lỗi DB: {e}")
+        
     return jsonify({"message": "Success", "ok": True})
 
 @app.route('/get-messages', methods=['GET'])
@@ -105,12 +112,10 @@ def get_followers():
         followers = []
         for row in rows:
             user_data = dict(row)
-            display_name = "Không xác định"
             try:
                 raw = json.loads(user_data.get("raw_data", "{}"))
-                display_name = raw.get("result", raw).get("message", {}).get("from", {}).get("display_name", "Không xác định")
-            except Exception: pass
-            user_data["name"] = display_name
+                user_data["name"] = raw.get("result", raw).get("message", {}).get("from", {}).get("display_name", "Không xác định")
+            except: user_data["name"] = "Không xác định"
             user_data["avatar"] = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
             user_data.pop("raw_data", None)
             followers.append(user_data)
@@ -136,8 +141,7 @@ def send_message():
 
     try:
         requests.post(f"{base_url}/sendChatAction", headers=headers, json={"chat_id": chat_id, "action": "typing"}, timeout=2)
-    except Exception as e:
-        logger.warning(f"Bỏ qua lỗi timeout Đang gõ: {e}")
+    except Exception: pass
         
     payload = {"chat_id": chat_id}
     endpoint = ""
@@ -158,11 +162,75 @@ def send_message():
         if res.status_code == 200:
             return jsonify({"status": "success", "result": res.json()})
         else:
-            logger.error(f"Zalo API Error: {res.text}")
             return jsonify({"error": f"Từ chối từ Zalo: {res.text}"}), 400
     except Exception as e:
-        logger.error(f"Lỗi gửi tin nhắn: {e}")
         return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# 🧠 MAGISTERIUM AI ENDPOINT (BẢN THỰC TẾ)
+# ==========================================
+@app.route('/magisterium-ask', methods=['POST'])
+def ask_magisterium():
+    data = request.get_json()
+    query = data.get("query")
+    
+    if not query:
+        return jsonify({"error": True, "message": "Thiếu câu hỏi"}), 400
+        
+    # Lấy Token từ file .env
+    magisterium_token = os.getenv('MAGISTERIUM_API_KEY')
+    api_url = os.getenv('MAGISTERIUM_API_URL', 'https://api.magisterium.com/api/v1/ask')
+    
+    if not magisterium_token:
+        return jsonify({"error": True, "message": "⚠️ Lỗi Server: Chưa cài đặt MAGISTERIUM_API_KEY"}), 500
+
+    logger.info(f"🧠 Đang hỏi Magisterium AI: {query}")
+    
+    try:
+        # Chuẩn bị dữ liệu gửi lên Magisterium (bạn có thể phải chỉnh tên biến 'question' thành biến chuẩn của tài liệu API)
+        headers = {
+            "Authorization": f"Bearer {magisterium_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        payload = {
+            "question": query  # Magisterium thường dùng biến 'question' hoặc 'query'
+        }
+        
+        # Gọi AI (đặt timeout 60s vì AI cần thời gian suy nghĩ)
+        res = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        
+        if res.status_code != 200:
+            logger.error(f"❌ Lỗi từ Magisterium: {res.text}")
+            return jsonify({"error": True, "message": f"❌ Lỗi từ AI: {res.status_code} - {res.text}"}), 500
+            
+        ai_data = res.json()
+        
+        # Bóc tách câu trả lời và Trích dẫn (Citations)
+        answer = ai_data.get("answer", "Xin lỗi, tôi chưa tìm thấy câu trả lời phù hợp.")
+        raw_citations = ai_data.get("citations", [])
+        
+        formatted_citations = []
+        for cit in raw_citations:
+            formatted_citations.append({
+                "document_title": cit.get("title", "Tài liệu không tên"),
+                "document_author": cit.get("author", ""),
+                "document_year": cit.get("year", ""),
+                "document_reference": cit.get("reference", ""),
+                "source_url": cit.get("url", "")
+            })
+
+        return jsonify({
+            "error": False,
+            "answer": answer,
+            "citations": formatted_citations
+        })
+
+    except requests.exceptions.Timeout:
+        return jsonify({"error": True, "message": "⏱️ AI suy nghĩ quá lâu (Timeout). Xin thử lại!"}), 504
+    except Exception as e:
+        logger.error(f"❌ Lỗi kết nối AI: {e}")
+        return jsonify({"error": True, "message": f"Lỗi hệ thống AI: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=False)
